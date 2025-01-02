@@ -41,15 +41,16 @@ public class SelectorApp implements PropertyChangeListener {
     private JMenuItem undoItem;
     private JMenuItem deleteItem;
     private JMenuItem fillItem;
-
+    private JMenuItem projectiveTextItem;
     private JButton cancelButton;
     private JButton undoButton;
     private JButton resetButton;
     private JButton finishButton;
     private JButton deleteButton;
+    private JButton projectiveTextButton;
     private final JLabel statusLabel;
 
-    // New in A6
+
     /**
      * Progress bar to indicate the progress of a model that needs to do long calculations in a
      * PROCESSING state.
@@ -123,6 +124,8 @@ public class SelectorApp implements PropertyChangeListener {
         menuBar.add(editMenu);
         JMenuItem deleteItem = new JMenu("Delete Selected Region");
         editMenu.add(deleteItem);
+        projectiveTextItem = new JMenuItem("Add Perspective Text...");
+        editMenu.add(projectiveTextItem);
         fillItem = new JMenuItem("Fill with Color...");
         editMenu.add(fillItem);
         fillItem.addActionListener(e -> doFillWithColor());
@@ -141,12 +144,50 @@ public class SelectorApp implements PropertyChangeListener {
         saveItem.addActionListener(e -> saveSelection());
         exitItem.addActionListener(e -> frame.dispose());
         undoItem.addActionListener(e -> model.undo());
+        projectiveTextItem.addActionListener(e -> doAddPerspectiveText());
         deleteItem.addActionListener(e -> {
             if (model.state() == SelectionModel.SelectionState.SELECTED) {
                 model.deleteSelectedRegion();
             }
         });
         return menuBar;
+    }
+
+    private void doAddPerspectiveText() {
+        if (model.state() != SelectionModel.SelectionState.SELECTED) {
+            JOptionPane.showMessageDialog(frame,
+                    "Please finish selecting a region first.",
+                    "No selection",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        if (!(model instanceof ProjectiveTextSelectionModel)) {
+            JOptionPane.showMessageDialog(frame,
+                    "The current tool does not support projective text. Please select 'ProjectiveText' first.",
+                    "Wrong tool",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        ProjectiveTextSelectionModel projModel = (ProjectiveTextSelectionModel) model;
+
+        // Prompt user for text & color, then:
+        String userText = JOptionPane.showInputDialog(frame, "Enter text to warp:");
+        if (userText == null || userText.isEmpty()) return;
+
+        Color chosenColor = JColorChooser.showDialog(frame, "Pick text color", Color.WHITE);
+        if (chosenColor == null) chosenColor = Color.WHITE;
+
+        try {
+            projModel.addPerspectiveText(userText, chosenColor);
+            imgPanel.repaint();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(frame,
+                    "Error adding perspective text:\n" + ex.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     /**
@@ -219,8 +260,13 @@ public class SelectorApp implements PropertyChangeListener {
         p.add(deleteButton);
         deleteButton.setEnabled(false);
 
-        String[] comBoxOptions = new String[]{"Point-to-point",
-                "Intelligent scissors","CrossGradColor"};
+        projectiveTextButton = new JButton("Projective Text");
+        projectiveTextButton.setEnabled(false);
+        p.add(projectiveTextButton);
+
+        String[] comBoxOptions = new String[]{
+                "Point-to-point", "Intelligent scissors","CrossGradColor","ProjectiveText"
+        };
 
         JComboBox comBox = new JComboBox(comBoxOptions);
 
@@ -236,8 +282,10 @@ public class SelectorApp implements PropertyChangeListener {
                 newModel = new ScissorsSelectionModel("CrossGradMono", model);
             } else if (selectedModel.equals("CrossGradColor")){
                 newModel = new ScissorsSelectionModel("CrossGradColor", model);
+            } else if ((selectedModel.equals("ProjectiveText"))) {
+                newModel = new ProjectiveTextSelectionModel(true);
             }
-            setSelectionModel(newModel);}
+                    setSelectionModel(newModel);}
         );
 
         deleteButton.addActionListener(e -> {
@@ -245,6 +293,9 @@ public class SelectorApp implements PropertyChangeListener {
                 model.deleteSelectedRegion();
             }
         });
+
+        projectiveTextButton.addActionListener(e -> doAddPerspectiveText());
+
         return p;
     }
 
@@ -300,22 +351,32 @@ public class SelectorApp implements PropertyChangeListener {
             finishButton.setEnabled(false);
             if (deleteButton != null) deleteButton.setEnabled(false);
             if (deleteItem != null) deleteItem.setEnabled(false);
+            projectiveTextButton.setEnabled(false);
+
 
         } else if (state == SelectionState.SELECTING) {
             cancelButton.setEnabled(false);
             undoButton.setEnabled(true);
             resetButton.setEnabled(true);
             finishButton.setEnabled(true);
-            if (deleteButton != null) deleteButton.setEnabled(false);
-            if (deleteItem != null) deleteItem.setEnabled(false);
+            if (deleteButton != null)
+                deleteButton.setEnabled(false);
+            if (deleteItem != null)
+                deleteItem.setEnabled(false);
+            projectiveTextButton.setEnabled(false);
+
 
         } else if (state == SelectionState.NO_SELECTION) {
             cancelButton.setEnabled(false);
             undoButton.setEnabled(false);
             resetButton.setEnabled(false);
             finishButton.setEnabled(false);
-            if (deleteButton != null) deleteButton.setEnabled(false);
-            if (deleteItem != null) deleteItem.setEnabled(false);
+            if (deleteButton != null)
+                deleteButton.setEnabled(false);
+            if (deleteItem != null)
+                deleteItem.setEnabled(false);
+            projectiveTextButton.setEnabled(false);
+
 
         } else if (state == SelectionState.SELECTED) {
             cancelButton.setEnabled(false);
@@ -323,9 +384,10 @@ public class SelectorApp implements PropertyChangeListener {
             resetButton.setEnabled(true);
             finishButton.setEnabled(false);
             deleteButton.setEnabled(true);
-            if (deleteButton != null) deleteButton.setEnabled(true);
-            // Enable menu item only if we have a valid reference to it
+            if (deleteButton != null)
+                deleteButton.setEnabled(true);
             if (deleteItem != null) deleteItem.setEnabled(true);
+            projectiveTextButton.setEnabled(model instanceof ProjectiveTextSelectionModel);
 
         } else {
             cancelButton.setEnabled(false);
@@ -333,8 +395,12 @@ public class SelectorApp implements PropertyChangeListener {
             resetButton.setEnabled(false);
             finishButton.setEnabled(false);
             deleteButton.setEnabled(false);
-            if (deleteButton != null) deleteButton.setEnabled(false);
-            if (deleteItem != null) deleteItem.setEnabled(false);
+            if (deleteButton != null)
+                deleteButton.setEnabled(false);
+            if (deleteItem != null)
+                deleteItem.setEnabled(false);
+            projectiveTextButton.setEnabled(false);
+
         }
     }
 

@@ -3,6 +3,7 @@ package selector;
 import static selector.SelectionModel.SelectionState.*;
 
 import java.awt.AlphaComposite;
+import java.awt.Font;
 import java.awt.Polygon;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
