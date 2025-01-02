@@ -392,6 +392,30 @@ public abstract class SelectionModel {
         }
     }
 
+    public void fillSelectionWithColor(Color color) {
+        if (state != SelectionState.SELECTED) {
+            throw new IllegalStateException("Selection must be finished before filling with a color.");
+        }
+
+        // Convert the selection (a list of PolyLine segments) into a Java AWT Polygon
+        Polygon polygon = PolyLine.makePolygon(selection);
+
+        // Get a Graphics2D object to draw on the BufferedImage
+        Graphics2D g2 = img.createGraphics();
+
+        // Restrict all drawing to the polygonal region
+        g2.setClip(polygon);
+
+        // Fill with the user-chosen color
+        g2.setColor(color);
+        g2.fillRect(0, 0, img.getWidth(), img.getHeight());
+
+        g2.dispose();
+
+        // Optionally reset the selection
+        // reset();
+    }
+
     /* Observation interface */
 
     /**

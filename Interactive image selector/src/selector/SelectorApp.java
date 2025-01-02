@@ -40,6 +40,8 @@ public class SelectorApp implements PropertyChangeListener {
     private JMenuItem saveItem;
     private JMenuItem undoItem;
     private JMenuItem deleteItem;
+    private JMenuItem fillItem;
+
     private JButton cancelButton;
     private JButton undoButton;
     private JButton resetButton;
@@ -121,6 +123,9 @@ public class SelectorApp implements PropertyChangeListener {
         menuBar.add(editMenu);
         JMenuItem deleteItem = new JMenu("Delete Selected Region");
         editMenu.add(deleteItem);
+        fillItem = new JMenuItem("Fill with Color...");
+        editMenu.add(fillItem);
+        fillItem.addActionListener(e -> doFillWithColor());
 
 
         // Create and populate Edit menu
@@ -143,6 +148,29 @@ public class SelectorApp implements PropertyChangeListener {
         });
         return menuBar;
     }
+
+    /**
+     * Called when user clicks "Fill with Color..."
+     */
+    private void doFillWithColor() {
+        // Only do something if we have a valid selection
+        if (model.state() != SelectionModel.SelectionState.SELECTED) {
+            JOptionPane.showMessageDialog(frame,
+                    "You must finish a selection before filling it with color.",
+                    "No selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Show color chooser dialog
+        Color chosenColor = JColorChooser.showDialog(frame, "Pick a color", Color.RED);
+        if (chosenColor != null) {
+            // Fill the region
+            model.fillSelectionWithColor(chosenColor);
+            // Possibly repaint or rely on property changes
+            imgPanel.repaint();
+        }
+    }
+
 
     /**
      * Return a panel containing buttons for controlling image selection.  Should only be called
