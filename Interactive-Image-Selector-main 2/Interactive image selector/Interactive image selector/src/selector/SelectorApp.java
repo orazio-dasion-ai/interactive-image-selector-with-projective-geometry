@@ -39,10 +39,12 @@ public class SelectorApp implements PropertyChangeListener {
     /* Components whose state must be changed during the selection process. */
     private JMenuItem saveItem;
     private JMenuItem undoItem;
+    private JMenuItem deleteItem;
     private JButton cancelButton;
     private JButton undoButton;
     private JButton resetButton;
     private JButton finishButton;
+    private JButton deleteButton;
     private final JLabel statusLabel;
 
     // New in A6
@@ -103,6 +105,7 @@ public class SelectorApp implements PropertyChangeListener {
     private JMenuBar makeMenuBar() {
         JMenuBar menuBar = new JMenuBar();
 
+
         // Create and populate File menu
         JMenu fileMenu = new JMenu("File");
         menuBar.add(fileMenu);
@@ -114,12 +117,18 @@ public class SelectorApp implements PropertyChangeListener {
         fileMenu.add(closeItem);
         JMenuItem exitItem = new JMenuItem("Exit");
         fileMenu.add(exitItem);
-
-        // Create and populate Edit menu
         JMenu editMenu = new JMenu("Edit");
         menuBar.add(editMenu);
+        JMenuItem deleteItem = new JMenu("Delete Selected Region");
+        editMenu.add(deleteItem);
+
+
+        // Create and populate Edit menu
         undoItem = new JMenuItem("Undo");
         editMenu.add(undoItem);
+
+
+
 
         // Controller: Attach menu item listeners
         openItem.addActionListener(e -> openImage());
@@ -127,7 +136,11 @@ public class SelectorApp implements PropertyChangeListener {
         saveItem.addActionListener(e -> saveSelection());
         exitItem.addActionListener(e -> frame.dispose());
         undoItem.addActionListener(e -> model.undo());
-
+        deleteItem.addActionListener(e -> {
+            if (model.state() == SelectionModel.SelectionState.SELECTED) {
+                model.deleteSelectedRegion();
+            }
+        });
         return menuBar;
     }
 
@@ -174,6 +187,10 @@ public class SelectorApp implements PropertyChangeListener {
         p.add(finishButton);
         finishButton.addActionListener(e -> model.finishSelection());
 
+        deleteButton = new JButton("Delete Selection");
+        p.add(deleteButton);
+        deleteButton.setEnabled(false);
+
         String[] comBoxOptions = new String[]{"Point-to-point",
                 "Intelligent scissors","CrossGradColor"};
 
@@ -194,6 +211,12 @@ public class SelectorApp implements PropertyChangeListener {
             }
             setSelectionModel(newModel);}
         );
+
+        deleteButton.addActionListener(e -> {
+            if (model.state() == SelectionState.SELECTED) {
+                model.deleteSelectedRegion();
+            }
+        });
         return p;
     }
 
@@ -247,26 +270,43 @@ public class SelectorApp implements PropertyChangeListener {
             undoButton.setEnabled(false);
             resetButton.setEnabled(false);
             finishButton.setEnabled(false);
+            if (deleteButton != null) deleteButton.setEnabled(false);
+            if (deleteItem != null) deleteItem.setEnabled(false);
+
         } else if (state == SelectionState.SELECTING) {
             cancelButton.setEnabled(false);
             undoButton.setEnabled(true);
             resetButton.setEnabled(true);
             finishButton.setEnabled(true);
+            if (deleteButton != null) deleteButton.setEnabled(false);
+            if (deleteItem != null) deleteItem.setEnabled(false);
+
         } else if (state == SelectionState.NO_SELECTION) {
             cancelButton.setEnabled(false);
             undoButton.setEnabled(false);
             resetButton.setEnabled(false);
             finishButton.setEnabled(false);
+            if (deleteButton != null) deleteButton.setEnabled(false);
+            if (deleteItem != null) deleteItem.setEnabled(false);
+
         } else if (state == SelectionState.SELECTED) {
             cancelButton.setEnabled(false);
             undoButton.setEnabled(true);
             resetButton.setEnabled(true);
             finishButton.setEnabled(false);
+            deleteButton.setEnabled(true);
+            if (deleteButton != null) deleteButton.setEnabled(true);
+            // Enable menu item only if we have a valid reference to it
+            if (deleteItem != null) deleteItem.setEnabled(true);
+
         } else {
             cancelButton.setEnabled(false);
             undoButton.setEnabled(false);
             resetButton.setEnabled(false);
             finishButton.setEnabled(false);
+            deleteButton.setEnabled(false);
+            if (deleteButton != null) deleteButton.setEnabled(false);
+            if (deleteItem != null) deleteItem.setEnabled(false);
         }
     }
 

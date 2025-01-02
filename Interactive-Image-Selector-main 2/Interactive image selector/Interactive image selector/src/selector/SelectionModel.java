@@ -2,6 +2,7 @@ package selector;
 
 import static selector.SelectionModel.SelectionState.*;
 
+import java.awt.AlphaComposite;
 import java.awt.Polygon;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
@@ -14,6 +15,8 @@ import java.util.LinkedList;
 import java.util.List;
 import javax.imageio.ImageIO;
 import javax.swing.event.SwingPropertyChangeSupport;
+import java.awt.Color;
+import java.awt.Graphics2D;
 
 /**
  * Represents the process of selecting a region of an image by appending segments to the end of a
@@ -309,6 +312,30 @@ public abstract class SelectionModel {
 
         ImageIO.write(dst, "png", out);
     }
+
+    public void deleteSelectedRegion() {
+        // 1. Must be in the SELECTED state
+        if (state != SelectionState.SELECTED) {
+            throw new IllegalStateException("Selection must be finished before deleting the region.");
+        }
+
+        // 2. Make a standard AWT Polygon from the PolyLine list
+        Polygon polygon = PolyLine.makePolygon(selection);
+
+        // 3. Get a Graphics2D context and fill the polygon
+        Graphics2D g2 = img.createGraphics();
+        g2.setClip(polygon);
+
+        // Example: Fill with black
+        g2.setComposite(AlphaComposite.Clear);
+        g2.fillRect(0, 0, img.getWidth(), img.getHeight());
+
+        g2.dispose();
+
+        // 4. Reset the selection so user can’t manipulate it further
+        reset();
+    }
+
 
     /* Specialization interface */
 
