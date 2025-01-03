@@ -3,8 +3,6 @@ package selector;
 import static selector.SelectionModel.SelectionState.*;
 
 import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -12,7 +10,6 @@ import java.io.*;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import javax.xml.stream.StreamFilter;
 import selector.SelectionModel.SelectionState;
 import scissors.ScissorsSelectionModel;
 
@@ -42,6 +39,8 @@ public class SelectorApp implements PropertyChangeListener {
     private JMenuItem deleteItem;
     private JMenuItem fillItem;
     private JMenuItem projectiveTextItem;
+    private JMenuItem pastePerspectiveItem;
+
     private JButton cancelButton;
     private JButton undoButton;
     private JButton resetButton;
@@ -129,6 +128,9 @@ public class SelectorApp implements PropertyChangeListener {
         fillItem = new JMenuItem("Fill with Color...");
         editMenu.add(fillItem);
         fillItem.addActionListener(e -> doFillWithColor());
+        pastePerspectiveItem = new JMenuItem("Paste Image in Perspective...");
+        editMenu.add(pastePerspectiveItem);
+        pastePerspectiveItem.addActionListener(e -> doPastePerspective());
 
 
         // Create and populate Edit menu
@@ -162,7 +164,7 @@ public class SelectorApp implements PropertyChangeListener {
             return;
         }
 
-        if (!(model instanceof ProjectiveTextSelectionModel)) {
+        if (!(model instanceof ProjectiveSelectionModel)) {
             JOptionPane.showMessageDialog(frame,
                     "The current tool does not support projective text. Please select 'ProjectiveText' first.",
                     "Wrong tool",
@@ -170,7 +172,7 @@ public class SelectorApp implements PropertyChangeListener {
             return;
         }
 
-        ProjectiveTextSelectionModel projModel = (ProjectiveTextSelectionModel) model;
+        ProjectiveSelectionModel projModel = (ProjectiveSelectionModel) model;
 
         // Prompt user for text & color, then:
         String userText = JOptionPane.showInputDialog(frame, "Enter text to warp:");
@@ -209,6 +211,62 @@ public class SelectorApp implements PropertyChangeListener {
             model.fillSelectionWithColor(chosenColor);
             // Possibly repaint or rely on property changes
             imgPanel.repaint();
+        }
+    }
+
+    private void doPastePerspective() {
+        // 1) Check if the current model is a projective model
+        if (!(model instanceof ProjectiveSelectionModel)) {
+            JOptionPane.showMessageDialog(frame,
+                    "Please switch to the 'Projective' tool (4 corners) first.",
+                    "Wrong tool",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        // 2) The user must have finished a 4-corner selection
+        if (model.state() != SelectionModel.SelectionState.SELECTED) {
+            JOptionPane.showMessageDialog(frame,
+                    "Please finish selecting exactly 4 corners first.",
+                    "No selection",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // 3) Prompt for image file
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileFilter(new FileNameExtensionFilter("Image Files",
+                ImageIO.getReaderFileSuffixes()));
+        int option = chooser.showOpenDialog(frame);
+        if (option != JFileChooser.APPROVE_OPTION) {
+            return; // user canceled
+        }
+
+        File file = chooser.getSelectedFile();
+        BufferedImage pasteImg = null;
+        try {
+            pasteImg = ImageIO.read(file);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(frame,
+                    "Error reading image: " + ex.getMessage(),
+                    "Paste Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (pasteImg == null) {
+            JOptionPane.showMessageDialog(frame,
+                    "Could not read the selected image.",
+                    "Paste Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // 4) Cast model & call the method
+        ProjectiveSelectionModel proj = (ProjectiveSelectionModel) model;
+        try {
+            proj.addPerspectiveImage(pasteImg);
+            imgPanel.repaint();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(frame,
+                    "Error warping the pasted image:\n" + ex.getMessage(),
+                    "Paste Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -283,7 +341,7 @@ public class SelectorApp implements PropertyChangeListener {
             } else if (selectedModel.equals("CrossGradColor")){
                 newModel = new ScissorsSelectionModel("CrossGradColor", model);
             } else if ((selectedModel.equals("ProjectiveText"))) {
-                newModel = new ProjectiveTextSelectionModel(true);
+                newModel = new ProjectiveSelectionModel(true);
             }
                     setSelectionModel(newModel);}
         );
@@ -387,7 +445,7 @@ public class SelectorApp implements PropertyChangeListener {
             if (deleteButton != null)
                 deleteButton.setEnabled(true);
             if (deleteItem != null) deleteItem.setEnabled(true);
-            projectiveTextButton.setEnabled(model instanceof ProjectiveTextSelectionModel);
+            projectiveTextButton.setEnabled(model instanceof ProjectiveSelectionModel);
 
         } else {
             cancelButton.setEnabled(false);

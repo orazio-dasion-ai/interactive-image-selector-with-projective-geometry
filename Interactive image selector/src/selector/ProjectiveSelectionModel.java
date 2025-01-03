@@ -7,9 +7,6 @@ import java.awt.Point;
 import java.awt.Polygon;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
-import java.util.Arrays;
-import javax.swing.JOptionPane;
-import selector.SelectionModel.SelectionState;
 
 /**
  * A SelectionModel that specifically:
@@ -17,9 +14,9 @@ import selector.SelectionModel.SelectionState;
  *  - Once the 4th point is added, automatically closes the selection (SELECTED state).
  *  - Provides a method to add perspective text (homography warp).
  */
-public class ProjectiveTextSelectionModel extends SelectionModel {
+public class ProjectiveSelectionModel extends SelectionModel {
 
-    public ProjectiveTextSelectionModel(boolean notifyOnEdt) {
+    public ProjectiveSelectionModel(boolean notifyOnEdt) {
         super(notifyOnEdt);
     }
 
@@ -55,26 +52,15 @@ public class ProjectiveTextSelectionModel extends SelectionModel {
         if (index < 0 || index >= selection.size()) {
             throw new IllegalArgumentException("Invalid corner index " + index);
         }
-        // For simplicity, we can do a minimal approach:
-        // You might want to handle "wrapping" lines, but let’s keep it simple:
-        // We'll just replace the segment's start with newPos.
-        // Then we might have to update the previous segment’s end or next segment’s start.
-        // For brevity, here's a basic approach:
 
-        // Example: Rebuild from scratch if corners are moved
-        // (In a real app, you'd carefully preserve adjacency.)
-
-        // Get old lines
         PolyLine oldLine = selection.get(index);
         Point oldStart = oldLine.start();
         Point oldEnd = oldLine.end();
 
-        // The "move" changes the starting point to newPos (or the end?)
-        // This is a design question. We'll assume we're moving the "start" corner.
+
         PolyLine newLine = new PolyLine(newPos, oldEnd);
         selection.set(index, newLine);
 
-        // If needed, fix the end of the previous segment so it now ends at newPos
         int prevIndex = (index - 1 + selection.size()) % selection.size();
         PolyLine prevLine = selection.get(prevIndex);
         selection.set(prevIndex, new PolyLine(prevLine.start(), newPos));
@@ -117,6 +103,40 @@ public class ProjectiveTextSelectionModel extends SelectionModel {
         // 3) Warp textImg onto img
         warpImage(textImg, img, H);
     }
+
+    public void addPerspectiveImage(BufferedImage pasteImg) {
+        // Must be SELECTED with exactly 4 corners
+        if (state() != SelectionState.SELECTED) {
+            throw new IllegalStateException("Must finish selection first");
+        }
+        Polygon poly = PolyLine.makePolygon(selection);
+//        if (poly.npoints != 4) {
+//            throw new IllegalArgumentException("This tool requires exactly 4 corners.");
+//        }
+
+        // 1) We'll define the "source" corners from (0,0) to (width,height)
+        int w = pasteImg.getWidth();
+        int h = pasteImg.getHeight();
+
+        Point2D src0 = new Point2D.Double(0, 0);
+        Point2D src1 = new Point2D.Double(w, 0);
+        Point2D src2 = new Point2D.Double(w, h);
+        Point2D src3 = new Point2D.Double(0, h);
+
+        // 2) Destination corners from the polygon
+        Point2D dst0 = new Point2D.Double(poly.xpoints[0], poly.ypoints[0]);
+        Point2D dst1 = new Point2D.Double(poly.xpoints[1], poly.ypoints[1]);
+        Point2D dst2 = new Point2D.Double(poly.xpoints[2], poly.ypoints[2]);
+        Point2D dst3 = new Point2D.Double(poly.xpoints[3], poly.ypoints[3]);
+
+        // 3) Compute the 3x3 homography
+        double[][] H = computeHomography(src0, src1, src2, src3,
+                dst0, dst1, dst2, dst3);
+
+        // 4) Warp
+        warpImage(pasteImg, img, H);
+    }
+
 
     // ============================================================
     // ============ HELPER METHODS FOR PERSPECTIVE TEXT ===========
