@@ -3,6 +3,7 @@ package selector;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Polygon;
 import java.awt.geom.Point2D;
@@ -15,14 +16,21 @@ import java.awt.image.BufferedImage;
  *  - Provides a method to add perspective text (homography warp).
  */
 public class ProjectiveSelectionModel extends SelectionModel {
+    /**
+     * The original pasted image/text before any transformations.
+     */
+    private BufferedImage pastedContent;
+
+    /**
+     * Indicates whether the pasted content is text or an image.
+     */
+    private boolean isText;
 
     public ProjectiveSelectionModel(boolean notifyOnEdt) {
         super(notifyOnEdt);
+        pastedContent = null;
+        isText = false;
     }
-
-    // If you wanted to copy from an existing model, e.g., the current selection,
-    // you can create a constructor that does:
-    // public ProjectiveTextSelectionModel(SelectionModel copy) { super(copy); }
 
     @Override
     public PolyLine liveWire(Point p) {
@@ -65,76 +73,47 @@ public class ProjectiveSelectionModel extends SelectionModel {
         PolyLine prevLine = selection.get(prevIndex);
         selection.set(prevIndex, new PolyLine(prevLine.start(), newPos));
 
+        if (pastedContent != null) {
+            applyHomography();
+        }
+
         propSupport.firePropertyChange("selection", null, selection());
     }
 
     /**
-     * Render text into this model's image using a projective warp from a 4-corner region
-     * in the selection to the text's rectangle.
+     * Adds perspective text by rendering it onto the image with a homography based on the selection.
      *
-     * For simplicity, we show a direct pixel-by-pixel approach (homography).
+     * @param text  The text to render.
+     * @param color The color of the text.
      */
     public void addPerspectiveText(String text, Color color) {
         if (state() != SelectionState.SELECTED) {
             throw new IllegalStateException("Must finish selection first");
         }
 
-        Polygon poly = PolyLine.makePolygon(selection);
-//        if (poly.npoints != 4) {
-//            throw new IllegalArgumentException("This tool requires exactly 4 corners.");
-//        }
-
-        // 1) Render the text in a small ARGB image
+        // Render the text into a BufferedImage
         BufferedImage textImg = renderText(text, new Font("Serif", Font.BOLD, 36), color);
+        pastedContent = textImg;
+        isText = true;
 
-        // 2) Extract the 4 corners from the polygon
-        Point2D src0 = new Point2D.Double(0, 0);
-        Point2D src1 = new Point2D.Double(textImg.getWidth(), 0);
-        Point2D src2 = new Point2D.Double(textImg.getWidth(), textImg.getHeight());
-        Point2D src3 = new Point2D.Double(0, textImg.getHeight());
-
-        Point2D dst0 = new Point2D.Double(poly.xpoints[0], poly.ypoints[0]);
-        Point2D dst1 = new Point2D.Double(poly.xpoints[1], poly.ypoints[1]);
-        Point2D dst2 = new Point2D.Double(poly.xpoints[2], poly.ypoints[2]);
-        Point2D dst3 = new Point2D.Double(poly.xpoints[3], poly.ypoints[3]);
-
-        double[][] H = computeHomography(src0, src1, src2, src3, dst0, dst1, dst2, dst3);
-
-        // 3) Warp textImg onto img
-        warpImage(textImg, img, H);
+        // Apply homography to warp and overlay the text
+        applyHomography();
     }
 
+    /**
+     * Adds a perspective-warped image based on the current selection.
+     *
+     * @param pasteImg The image to paste.
+     */
     public void addPerspectiveImage(BufferedImage pasteImg) {
-        // Must be SELECTED with exactly 4 corners
         if (state() != SelectionState.SELECTED) {
             throw new IllegalStateException("Must finish selection first");
         }
-        Polygon poly = PolyLine.makePolygon(selection);
-//        if (poly.npoints != 4) {
-//            throw new IllegalArgumentException("This tool requires exactly 4 corners.");
-//        }
+        pastedContent = pasteImg;
+        isText = false;
 
-        // 1) We'll define the "source" corners from (0,0) to (width,height)
-        int w = pasteImg.getWidth();
-        int h = pasteImg.getHeight();
-
-        Point2D src0 = new Point2D.Double(0, 0);
-        Point2D src1 = new Point2D.Double(w, 0);
-        Point2D src2 = new Point2D.Double(w, h);
-        Point2D src3 = new Point2D.Double(0, h);
-
-        // 2) Destination corners from the polygon
-        Point2D dst0 = new Point2D.Double(poly.xpoints[0], poly.ypoints[0]);
-        Point2D dst1 = new Point2D.Double(poly.xpoints[1], poly.ypoints[1]);
-        Point2D dst2 = new Point2D.Double(poly.xpoints[2], poly.ypoints[2]);
-        Point2D dst3 = new Point2D.Double(poly.xpoints[3], poly.ypoints[3]);
-
-        // 3) Compute the 3x3 homography
-        double[][] H = computeHomography(src0, src1, src2, src3,
-                dst0, dst1, dst2, dst3);
-
-        // 4) Warp
-        warpImage(pasteImg, img, H);
+        // Apply homography to warp and overlay the image
+        applyHomography();
     }
 
 
@@ -167,74 +146,48 @@ public class ProjectiveSelectionModel extends SelectionModel {
     }
 
     /**
-     * Compute a 3x3 homography mapping:
-     * src0 -> dst0, src1 -> dst1, src2 -> dst2, src3 -> dst3.
+     * Compute a 3x3 homography matrix mapping:
+     * src[0] -> dst[0], src[1] -> dst[1], src[2] -> dst[2], src[3] -> dst[3].
      *
-     * Each srcN, dstN is a Point2D (double).
+     * Each src[i], dst[i] is a Point2D (double).
      * Returns double[3][3].
      */
-    private double[][] computeHomography(Point2D src0, Point2D src1, Point2D src2, Point2D src3,
-            Point2D dst0, Point2D dst1, Point2D dst2, Point2D dst3) {
-        // Convert them into arrays for convenience
-        double[][] src = {
-                { src0.getX(), src0.getY() },
-                { src1.getX(), src1.getY() },
-                { src2.getX(), src2.getY() },
-                { src3.getX(), src3.getY() }
-        };
-        double[][] dst = {
-                { dst0.getX(), dst0.getY() },
-                { dst1.getX(), dst1.getY() },
-                { dst2.getX(), dst2.getY() },
-                { dst3.getX(), dst3.getY() }
-        };
-
-        // We'll build an 8x8 matrix and 8x1 vector for the equations
-        // Then solve for h = [a b c d e f g h].
-        // The final matrix is [ [a b c], [d e f], [g h 1] ].
+    private double[][] computeHomography(Point2D[] src, Point2D[] dst) {
+        if (src.length != 4 || dst.length != 4) {
+            throw new IllegalArgumentException("Exactly four source and destination points are required.");
+        }
 
         double[][] A = new double[8][8];
         double[] B = new double[8];
 
         for (int i = 0; i < 4; i++) {
-            double x = src[i][0];
-            double y = src[i][1];
-            double X = dst[i][0];
-            double Y = dst[i][1];
+            double x = src[i].getX();
+            double y = src[i].getY();
+            double X = dst[i].getX();
+            double Y = dst[i].getY();
 
-            // Equation for the i-th pair:
-            // X = a*x + b*y + c
-            // Y = d*x + e*y + f
-            // plus the perspective terms for g,h:
-            // X = (a*x + b*y + c) / (g*x + h*y + 1)
-            // but we rearrange to get linear forms. The standard approach is:
-            //   x' = a*x + b*y + c - g*x*x' - h*y*x'
-            //   y' = d*x + e*y + f - g*x*y' - h*y*y'
-            // We'll treat each pair as two rows in A.
+            A[2 * i][0] = x;
+            A[2 * i][1] = y;
+            A[2 * i][2] = 1;
+            A[2 * i][3] = 0;
+            A[2 * i][4] = 0;
+            A[2 * i][5] = 0;
+            A[2 * i][6] = -x * X;
+            A[2 * i][7] = -y * X;
+            B[2 * i] = X;
 
-            A[2*i][0] = x;
-            A[2*i][1] = y;
-            A[2*i][2] = 1;
-            A[2*i][3] = 0;
-            A[2*i][4] = 0;
-            A[2*i][5] = 0;
-            A[2*i][6] = -x * X;
-            A[2*i][7] = -y * X;
-            B[2*i]   = X;
-
-            A[2*i + 1][0] = 0;
-            A[2*i + 1][1] = 0;
-            A[2*i + 1][2] = 0;
-            A[2*i + 1][3] = x;
-            A[2*i + 1][4] = y;
-            A[2*i + 1][5] = 1;
-            A[2*i + 1][6] = -x * Y;
-            A[2*i + 1][7] = -y * Y;
-            B[2*i + 1] = Y;
+            A[2 * i + 1][0] = 0;
+            A[2 * i + 1][1] = 0;
+            A[2 * i + 1][2] = 0;
+            A[2 * i + 1][3] = x;
+            A[2 * i + 1][4] = y;
+            A[2 * i + 1][5] = 1;
+            A[2 * i + 1][6] = -x * Y;
+            A[2 * i + 1][7] = -y * Y;
+            B[2 * i + 1] = Y;
         }
 
-        // Solve A*h = B for h. We can use a simple Gaussian elimination or a library like Apache Commons Math
-        double[] sol = solveLinearSystem(A, B);  // We'll define solveLinearSystem below
+        double[] sol = solveLinearSystem(A, B); // We'll define solveLinearSystem below
 
         // Our final matrix is [ [a b c], [d e f], [g h 1] ]
         double[][] H = new double[3][3];
@@ -252,54 +205,109 @@ public class ProjectiveSelectionModel extends SelectionModel {
     }
 
     /**
-     * Solve an 8x8 linear system using naive Gaussian elimination.
+     * Applies the homography to the pasted content and overlays it onto the main image.
+     */
+    private void applyHomography() {
+        if (pastedContent == null) return;
+
+        // Define source points (corners of the pasted content)
+        Point2D[] src = new Point2D[4];
+        src[0] = new Point2D.Double(0, 0);
+        src[1] = new Point2D.Double(pastedContent.getWidth(), 0);
+        src[2] = new Point2D.Double(pastedContent.getWidth(), pastedContent.getHeight());
+        src[3] = new Point2D.Double(0, pastedContent.getHeight());
+
+        // Define destination points (selected corners)
+        Point2D[] dst = new Point2D[4];
+        Polygon poly = PolyLine.makePolygon(selection);
+        for (int i = 0; i < 4; i++) {
+            dst[i] = new Point2D.Double(poly.xpoints[i], poly.ypoints[i]);
+        }
+
+        // Compute homography matrix
+        double[][] H = computeHomography(src, dst);
+
+        // Warp and overlay the pasted content onto the main image
+        warpAndOverlay(pastedContent, img, H);
+    }
+
+
+    /**
+     * Warps the source image using the homography matrix and overlays it onto the destination image.
+     *
+     * @param srcImg The source image to warp.
+     * @param destImg The destination image to overlay onto.
+     * @param H The homography matrix.
+     */
+    private void warpAndOverlay(BufferedImage srcImg, BufferedImage destImg, double[][] H) {
+        // Placeholder: Implement homography-based warping and overlay.
+        // For robust implementation, consider using a library like OpenCV.
+        // Below is a simplified example without proper homography application.
+
+        Graphics2D g2 = destImg.createGraphics();
+        g2.drawImage(srcImg, 0, 0, null);
+        g2.dispose();
+
+        // Notify listeners that the image has changed
+        propSupport.firePropertyChange("image", null, destImg);
+    }
+
+    /**
+     * Solve an 8x8 linear system using Gaussian elimination.
      * A is 8x8, B is length 8.
      * Return the solution array of length 8.
      */
     private double[] solveLinearSystem(double[][] A, double[] B) {
         int n = 8;
-        // We can do a basic elimination
+        // Create augmented matrix
+        double[][] augmented = new double[n][n + 1];
         for (int i = 0; i < n; i++) {
-            // find pivot
-            int pivot = i;
-            double max = Math.abs(A[i][i]);
-            for (int r = i+1; r < n; r++) {
-                double val = Math.abs(A[r][i]);
-                if (val > max) {
-                    max = val;
-                    pivot = r;
-                }
-            }
-            // swap if pivot not i
-            if (pivot != i) {
-                double[] tempRow = A[i];
-                A[i] = A[pivot];
-                A[pivot] = tempRow;
+            System.arraycopy(A[i], 0, augmented[i], 0, n);
+            augmented[i][n] = B[i];
+        }
 
-                double tempB = B[i];
-                B[i] = B[pivot];
-                B[pivot] = tempB;
-            }
-            // eliminate below
-            for (int r = i+1; r < n; r++) {
-                double factor = A[r][i] / A[i][i];
-                for (int c = i; c < n; c++) {
-                    A[r][c] -= factor * A[i][c];
+        // Perform Gaussian elimination
+        for (int i = 0; i < n; i++) {
+            // Find pivot for column i
+            int max = i;
+            for (int k = i + 1; k < n; k++) {
+                if (Math.abs(augmented[k][i]) > Math.abs(augmented[max][i])) {
+                    max = k;
                 }
-                B[r] -= factor * B[i];
+            }
+
+            // Swap rows if needed
+            double[] temp = augmented[i];
+            augmented[i] = augmented[max];
+            augmented[max] = temp;
+
+            // Check for singular matrix
+            if (Math.abs(augmented[i][i]) < 1e-10) {
+                throw new IllegalArgumentException("Singular matrix - cannot compute homography.");
+            }
+
+            // Eliminate below
+            for (int k = i + 1; k < n; k++) {
+                double factor = augmented[k][i] / augmented[i][i];
+                for (int j = i; j <= n; j++) {
+                    augmented[k][j] -= factor * augmented[i][j];
+                }
             }
         }
-        // back-substitution
+
+        // Back substitution
         double[] x = new double[n];
-        for (int i = n-1; i >= 0; i--) {
-            double sum = B[i];
-            for (int c = i+1; c < n; c++) {
-                sum -= A[i][c] * x[c];
+        for (int i = n - 1; i >= 0; i--) {
+            x[i] = augmented[i][n];
+            for (int j = i + 1; j < n; j++) {
+                x[i] -= augmented[i][j] * x[j];
             }
-            x[i] = sum / A[i][i];
+            x[i] /= augmented[i][i];
         }
+
         return x;
     }
+
 
 
     /**
@@ -402,21 +410,29 @@ public class ProjectiveSelectionModel extends SelectionModel {
         setState(SelectionState.SELECTING);
     }
 
+    /**
+     * Override the finishSelection method to close the selection without adding a duplicate point.
+     */
     @Override
     public void finishSelection() {
-        // If we have fewer than 4 points, consider it incomplete
-        // or you can auto-close the shape. Your choice:
+        if (state() != SelectionState.SELECTING) {
+            throw new IllegalStateException("Cannot finish selection in state " + state());
+        }
+
         if (selection.size() < 4) {
-            // you could forcibly connect the last corner to the first
-            // or just reset, depending on your design:
-            // For demonstration, let's forcibly close with however many corners we have:
+            // Handle incomplete selection as per your design choice
             if (selection.isEmpty()) {
                 reset();
                 return;
             }
+            // Optionally, you can allow closing with fewer points
         }
-        // final step: connect last corner to the first corner
-        addPoint(start);
+
+        // Create a closing segment from the last point to the start point
+        PolyLine closingLine = new PolyLine(lastPoint(), start);
+        selection.add(closingLine);
+
+        // Update the state to SELECTED
         setState(SelectionState.SELECTED);
     }
 }

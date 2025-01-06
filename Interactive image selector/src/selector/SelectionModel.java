@@ -1,13 +1,17 @@
 package selector;
 
-import static selector.SelectionModel.SelectionState.*;
+import static selector.SelectionModel.SelectionState.NO_SELECTION;
+import static selector.SelectionModel.SelectionState.PROCESSING;
+import static selector.SelectionModel.SelectionState.SELECTED;
+import static selector.SelectionModel.SelectionState.SELECTING;
 
 import java.awt.AlphaComposite;
-import java.awt.Font;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Polygon;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
-import java.awt.Point;
 import java.beans.PropertyChangeListener;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -16,8 +20,6 @@ import java.util.LinkedList;
 import java.util.List;
 import javax.imageio.ImageIO;
 import javax.swing.event.SwingPropertyChangeSupport;
-import java.awt.Color;
-import java.awt.Graphics2D;
 
 /**
  * Represents the process of selecting a region of an image by appending segments to the end of a

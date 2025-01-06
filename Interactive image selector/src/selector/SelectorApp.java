@@ -343,7 +343,7 @@ public class SelectorApp implements PropertyChangeListener {
             } else if ((selectedModel.equals("ProjectiveText"))) {
                 newModel = new ProjectiveSelectionModel(true);
             }
-                    setSelectionModel(newModel);}
+            setSelectionModel(newModel);}
         );
 
         deleteButton.addActionListener(e -> {
