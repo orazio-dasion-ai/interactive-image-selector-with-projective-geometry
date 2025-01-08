@@ -231,27 +231,6 @@ public class ProjectiveSelectionModel extends SelectionModel {
         warpAndOverlay(pastedContent, img, H);
     }
 
-
-    /**
-     * Warps the source image using the homography matrix and overlays it onto the destination image.
-     *
-     * @param srcImg The source image to warp.
-     * @param destImg The destination image to overlay onto.
-     * @param H The homography matrix.
-     */
-    private void warpAndOverlay(BufferedImage srcImg, BufferedImage destImg, double[][] H) {
-        // Placeholder: Implement homography-based warping and overlay.
-        // For robust implementation, consider using a library like OpenCV.
-        // Below is a simplified example without proper homography application.
-
-        Graphics2D g2 = destImg.createGraphics();
-        g2.drawImage(srcImg, 0, 0, null);
-        g2.dispose();
-
-        // Notify listeners that the image has changed
-        propSupport.firePropertyChange("image", null, destImg);
-    }
-
     /**
      * Solve an 8x8 linear system using Gaussian elimination.
      * A is 8x8, B is length 8.
@@ -351,27 +330,185 @@ public class ProjectiveSelectionModel extends SelectionModel {
         }
     }
 
+    /**
+     * Warps the source image using the homography matrix and overlays it onto the destination image.
+     *
+     * @param srcImg  The source image to warp.
+     * @param destImg The destination image to overlay onto.
+     * @param H       The homography matrix.
+     */
+    private void warpAndOverlay(BufferedImage srcImg, BufferedImage destImg, double[][] H) {
+        // Compute the inverse homography matrix
+        double[][] Hinv = invertHomography(H);
+        if (Hinv == null) {
+            throw new IllegalArgumentException("Homography matrix is singular and cannot be inverted.");
+        }
+
+        int destWidth = destImg.getWidth();
+        int destHeight = destImg.getHeight();
+
+        for (int y = 0; y < destHeight; y++) {
+            for (int x = 0; x < destWidth; x++) {
+                // Apply inverse homography to destination pixel
+                double[] srcPt = applyHomography(Hinv, x, y);
+
+                double srcX = srcPt[0];
+                double srcY = srcPt[1];
+
+                // Perform bilinear interpolation
+                int rgb = bilinearInterpolate(srcImg, srcX, srcY);
+
+                // Blend the source pixel with the destination pixel
+                if (rgb != 0) { // Assuming transparent pixels have RGB=0
+                    int destRGB = destImg.getRGB(x, y);
+                    int blendedRGB = blend(rgb, destRGB);
+                    destImg.setRGB(x, y, blendedRGB);
+                }
+            }
+        }
+
+        // Notify listeners that the image has changed
+        propSupport.firePropertyChange("image", null, destImg);
+    }
 
     /**
-     * Blends a source ARGB pixel with a destination ARGB pixel using
-     * standard alpha compositing (SRC over DST).
+     * Applies the homography matrix to a point (x, y).
      *
-     * @param srcARGB the ARGB color of the source pixel
-     * @param dstARGB the ARGB color of the destination pixel
-     * @return the blended ARGB result
+     * @param H The homography matrix.
+     * @param x The x-coordinate.
+     * @param y The y-coordinate.
+     * @return The transformed point as a double array [x', y'].
+     */
+    private double[] applyHomography(double[][] H, double x, double y) {
+        double denominator = H[2][0] * x + H[2][1] * y + H[2][2];
+        double xPrime = (H[0][0] * x + H[0][1] * y + H[0][2]) / denominator;
+        double yPrime = (H[1][0] * x + H[1][1] * y + H[1][2]) / denominator;
+        return new double[]{xPrime, yPrime};
+    }
+
+    /**
+     * Performs bilinear interpolation for non-integer pixel locations.
+     *
+     * @param img The source image.
+     * @param x   The x-coordinate (can be non-integer).
+     * @param y   The y-coordinate (can be non-integer).
+     * @return The interpolated RGB value, or 0 if out of bounds.
+     */
+    private int bilinearInterpolate(BufferedImage img, double x, double y) {
+        int x1 = (int) Math.floor(x);
+        int y1 = (int) Math.floor(y);
+        int x2 = x1 + 1;
+        int y2 = y1 + 1;
+
+        if (x1 < 0 || y1 < 0 || x2 >= img.getWidth() || y2 >= img.getHeight()) {
+            return 0; // Transparent if out of bounds
+        }
+
+        double a = x - x1;
+        double b = y - y1;
+
+        int rgb11 = img.getRGB(x1, y1);
+        int rgb21 = img.getRGB(x2, y1);
+        int rgb12 = img.getRGB(x1, y2);
+        int rgb22 = img.getRGB(x2, y2);
+
+        int r = (int) (
+                ((1 - a) * (1 - b) * ((rgb11 >> 16) & 0xFF)) +
+                        (a * (1 - b) * ((rgb21 >> 16) & 0xFF)) +
+                        ((1 - a) * b * ((rgb12 >> 16) & 0xFF)) +
+                        (a * b * ((rgb22 >> 16) & 0xFF))
+        );
+
+        int g = (int) (
+                ((1 - a) * (1 - b) * ((rgb11 >> 8) & 0xFF)) +
+                        (a * (1 - b) * ((rgb21 >> 8) & 0xFF)) +
+                        ((1 - a) * b * ((rgb12 >> 8) & 0xFF)) +
+                        (a * b * ((rgb22 >> 8) & 0xFF))
+        );
+
+        int bl = (int) (
+                ((1 - a) * (1 - b) * (rgb11 & 0xFF)) +
+                        (a * (1 - b) * (rgb21 & 0xFF)) +
+                        ((1 - a) * b * (rgb12 & 0xFF)) +
+                        (a * b * (rgb22 & 0xFF))
+        );
+
+        int aAlpha = (rgb11 >> 24) & 0xFF;
+        int a2Alpha = (rgb21 >> 24) & 0xFF;
+        int a3Alpha = (rgb12 >> 24) & 0xFF;
+        int a4Alpha = (rgb22 >> 24) & 0xFF;
+
+        double alpha = ((1 - a) * (1 - b) * aAlpha +
+                a * (1 - b) * a2Alpha +
+                (1 - a) * b * a3Alpha +
+                a * b * a4Alpha) / 255.0;
+
+        // If alpha is 0, return transparent
+        if (alpha == 0) return 0;
+
+        // Return the blended color
+        return (Math.min((int) (alpha * 255), 255) << 24) |
+                (Math.min(r, 255) << 16) |
+                (Math.min(g, 255) << 8) |
+                Math.min(bl, 255);
+    }
+
+    /**
+     * Inverts a 3x3 homography matrix.
+     *
+     * @param H The homography matrix.
+     * @return The inverse homography matrix, or null if singular.
+     */
+    private double[][] invertHomography(double[][] H) {
+        double a = H[0][0], b = H[0][1], c = H[0][2];
+        double d = H[1][0], e = H[1][1], f = H[1][2];
+        double g = H[2][0], h = H[2][1], i = H[2][2];
+
+        double A = e * i - f * h;
+        double B = -(d * i - f * g);
+        double C = d * h - e * g;
+        double D = -(b * i - c * h);
+        double E = a * i - c * g;
+        double F = -(a * h - b * g);
+        double G = b * f - c * e;
+        double HinvVal = -(a * f - c * d);
+        double I = a * e - b * d;
+
+        double det = a * A + b * B + c * C;
+
+        if (Math.abs(det) < 1e-10) {
+            return null; // Singular matrix
+        }
+
+        double[][] Hinv = {
+                {A / det, D / det, G / det},
+                {B / det, E / det, HinvVal / det},
+                {C / det, F / det, I / det}
+        };
+
+        return Hinv;
+    }
+
+
+    /**
+     * Blends a source ARGB pixel with a destination ARGB pixel using standard alpha compositing (SRC over DST).
+     *
+     * @param srcARGB The ARGB color of the source pixel.
+     * @param dstARGB The ARGB color of the destination pixel.
+     * @return The blended ARGB result.
      */
     private int blend(int srcARGB, int dstARGB) {
         // Extract source color components
         int srcA = (srcARGB >> 24) & 0xFF;
         int srcR = (srcARGB >> 16) & 0xFF;
-        int srcG = (srcARGB >> 8)  & 0xFF;
-        int srcB = (srcARGB)       & 0xFF;
+        int srcG = (srcARGB >> 8) & 0xFF;
+        int srcB = srcARGB & 0xFF;
 
         // Extract destination color components
         int dstA = (dstARGB >> 24) & 0xFF;
         int dstR = (dstARGB >> 16) & 0xFF;
-        int dstG = (dstARGB >> 8)  & 0xFF;
-        int dstB = (dstARGB)       & 0xFF;
+        int dstG = (dstARGB >> 8) & 0xFF;
+        int dstB = dstARGB & 0xFF;
 
         // Convert alpha from [0..255] to [0..1]
         float alphaSrc = srcA / 255f;
