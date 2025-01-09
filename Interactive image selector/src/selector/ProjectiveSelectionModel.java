@@ -1,5 +1,6 @@
 package selector;
 
+import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -8,6 +9,7 @@ import java.awt.Point;
 import java.awt.Polygon;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
+import javax.swing.SwingUtilities;
 
 /**
  * A SelectionModel that specifically:
@@ -25,6 +27,34 @@ public class ProjectiveSelectionModel extends SelectionModel {
      * Indicates whether the pasted content is text or an image.
      */
     private boolean isText;
+    private BufferedImage originalImg;
+
+    // Override the setImage method to create a deep copy
+    @Override
+    public void setImage(BufferedImage img) {
+        super.setImage(img);
+        if (img != null) {
+            // Create a deep copy of the original image
+            originalImg = new BufferedImage(
+                    img.getColorModel(),
+                    img.copyData(null),
+                    img.isAlphaPremultiplied(),
+                    null
+            );
+        } else {
+            originalImg = null;
+        }
+    }
+
+    private void resetImage() {
+        if (originalImg == null) return; // Nothing to reset
+
+        // Clear the current image by drawing the original image onto it
+        Graphics2D g2d = img.createGraphics();
+        g2d.setComposite(AlphaComposite.Src);
+        g2d.drawImage(originalImg, 0, 0, null);
+        g2d.dispose();
+    }
 
     public ProjectiveSelectionModel(boolean notifyOnEdt) {
         super(notifyOnEdt);
@@ -208,7 +238,7 @@ public class ProjectiveSelectionModel extends SelectionModel {
      * Applies the homography to the pasted content and overlays it onto the main image.
      */
     private void applyHomography() {
-        if (pastedContent == null) return;
+        if (pastedContent == null || originalImg == null) return;
 
         // Define source points (corners of the pasted content)
         Point2D[] src = new Point2D[4];
@@ -227,9 +257,21 @@ public class ProjectiveSelectionModel extends SelectionModel {
         // Compute homography matrix
         double[][] H = computeHomography(src, dst);
 
-        // Warp and overlay the pasted content onto the main image
-        warpAndOverlay(pastedContent, img, H);
+        // Reset 'img' to the original image
+        resetImage();
+
+        // Perform warping and overlay in a background thread to keep UI responsive
+        new Thread(() -> {
+            warpAndOverlay(pastedContent, img, H);
+
+            // Repaint the image panel on the EDT
+            SwingUtilities.invokeLater(() -> {
+                propSupport.firePropertyChange("image", null, img);
+            });
+        }).start();
     }
+
+
 
     /**
      * Solve an 8x8 linear system using Gaussian elimination.
@@ -289,46 +331,46 @@ public class ProjectiveSelectionModel extends SelectionModel {
 
 
 
-    /**
-     * Warp each pixel in `srcImg` into `destImg` using matrix H.
-     * If you want alpha blending, you'd add logic.
-     */
-    private void warpImage(BufferedImage srcImg, BufferedImage destImg, double[][] H) {
-        double a = H[0][0], b = H[0][1], c = H[0][2];
-        double d = H[1][0], e = H[1][1], f = H[1][2];
-        double g = H[2][0], h = H[2][1]; // H[2][2] = 1
-
-        for (int v = 0; v < srcImg.getHeight(); v++) {
-            for (int u = 0; u < srcImg.getWidth(); u++) {
-                int srcARGB = srcImg.getRGB(u, v);
-
-                // If the source pixel is fully transparent, skip
-                if (((srcARGB >> 24) & 0xFF) == 0) {
-                    continue;
-                }
-
-                double X = a*u + b*v + c;
-                double Y = d*u + e*v + f;
-                double W = g*u + h*v + 1.0;
-
-                int Xdst = (int) Math.round(X / W);
-                int Ydst = (int) Math.round(Y / W);
-
-                if (Xdst >= 0 && Xdst < destImg.getWidth() &&
-                        Ydst >= 0 && Ydst < destImg.getHeight()) {
-
-                    // Get the existing color at (Xdst, Ydst)
-                    int dstARGB = destImg.getRGB(Xdst, Ydst);
-
-                    // Blend them
-                    int blendedARGB = blend(srcARGB, dstARGB);
-
-                    // Write the blended color back
-                    destImg.setRGB(Xdst, Ydst, blendedARGB);
-                }
-            }
-        }
-    }
+//    /**
+//     * Warp each pixel in `srcImg` into `destImg` using matrix H.
+//     * If you want alpha blending, you'd add logic.
+//     */
+//    private void warpImage(BufferedImage srcImg, BufferedImage destImg, double[][] H) {
+//        double a = H[0][0], b = H[0][1], c = H[0][2];
+//        double d = H[1][0], e = H[1][1], f = H[1][2];
+//        double g = H[2][0], h = H[2][1]; // H[2][2] = 1
+//
+//        for (int v = 0; v < srcImg.getHeight(); v++) {
+//            for (int u = 0; u < srcImg.getWidth(); u++) {
+//                int srcARGB = srcImg.getRGB(u, v);
+//
+//                // If the source pixel is fully transparent, skip
+//                if (((srcARGB >> 24) & 0xFF) == 0) {
+//                    continue;
+//                }
+//
+//                double X = a*u + b*v + c;
+//                double Y = d*u + e*v + f;
+//                double W = g*u + h*v + 1.0;
+//
+//                int Xdst = (int) Math.round(X / W);
+//                int Ydst = (int) Math.round(Y / W);
+//
+//                if (Xdst >= 0 && Xdst < destImg.getWidth() &&
+//                        Ydst >= 0 && Ydst < destImg.getHeight()) {
+//
+//                    // Get the existing color at (Xdst, Ydst)
+//                    int dstARGB = destImg.getRGB(Xdst, Ydst);
+//
+//                    // Blend them
+//                    int blendedARGB = blend(srcARGB, dstARGB);
+//
+//                    // Write the blended color back
+//                    destImg.setRGB(Xdst, Ydst, blendedARGB);
+//                }
+//            }
+//        }
+//    }
 
     /**
      * Warps the source image using the homography matrix and overlays it onto the destination image.
