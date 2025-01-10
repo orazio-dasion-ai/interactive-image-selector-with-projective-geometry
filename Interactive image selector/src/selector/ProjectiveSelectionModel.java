@@ -10,6 +10,7 @@ import java.awt.Polygon;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import javax.swing.SwingUtilities;
+import selector.ShapeUtils.*;
 
 /**
  * A SelectionModel that specifically:
@@ -143,6 +144,27 @@ public class ProjectiveSelectionModel extends SelectionModel {
         isText = false;
 
         // Apply homography to warp and overlay the image
+        applyHomography();
+    }
+
+    /**
+     * Adds a basic shape (circle, square, oval, triangle) with projective geometry.
+     *
+     * @param shapeType The type of shape to add ("circle", "square", "oval", "triangle").
+     * @param size      The size of the shape image.
+     * @param color     The color of the shape.
+     */
+    public void addPerspectiveShape(String shapeType, int size, Color color) {
+        if (state() != SelectionState.SELECTED) {
+            throw new IllegalStateException("Must finish selection first");
+        }
+
+        // Create the shape image using ShapeUtils
+        BufferedImage shapeImg = ShapeUtils.createShapeImage(shapeType, size, color);
+        pastedContent = shapeImg;
+        isText = false;
+
+        // Apply homography to warp and overlay the shape
         applyHomography();
     }
 

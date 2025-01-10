@@ -1,17 +1,18 @@
 package selector;
 
-import java.awt.BorderLayout;
-import java.awt.CardLayout;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
-import javax.swing.ImageIcon;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
+import javax.swing.*;
 import javax.swing.SwingConstants;
+import selector.ShapeUtils;
+
 
 /**
- * A Swing component that displays an image and facilitates interaction with it in order to select
- * a region of the image.  The image and selection model can both be changed, and a placeholder
- * label is shown if no valid image has been set.
+ * A Swing component that displays an image and facilitates interaction with it
+ * in order to select a region of the image. The image and selection model can both be
+ * changed, and a placeholder label is shown if no valid image has been set.
  */
 public class ImagePanel extends JPanel {
 
@@ -27,35 +28,136 @@ public class ImagePanel extends JPanel {
      */
     private final SelectionComponent selector;
 
+    /**
+     * A CardLayout panel that switches between "no image loaded" placeholder and the image label.
+     */
+    private final JPanel cardPanel;
+    private final CardLayout cardLayout;
+
+    private Color currentShapeColor = Color.RED;
+
+
+    /**
+     * Construct a new ImagePanel with:
+     * 1) A toolbar at the top for shape-pasting buttons.
+     * 2) A CardLayout center area toggling between a placeholder and the image/selector.
+     */
     public ImagePanel() {
-        // Create components to show when a valid image is set.
+        // Use BorderLayout so we can place a toolbar at the top (NORTH).
+        super(new BorderLayout());
+
+        // ====================
+        // 1. CREATE A TOOLBAR
+        // ====================
+        JToolBar shapeToolBar = new JToolBar();
+        add(shapeToolBar, BorderLayout.NORTH);
+
+        // Example shapes: Circle, Square, Oval, Triangle
+        // with corresponding colors
+        String[] shapes = { "Circle", "Square", "Oval", "Triangle" };
+        for (String shape : shapes) {
+            JButton shapeButton = new JButton(shape);
+            shapeButton.addActionListener(e -> {
+                pasteShape(shape.toLowerCase(), 100, currentShapeColor);
+            });
+            shapeToolBar.add(shapeButton);
+        }
+
+
+        // =============================
+        // 2. BUILD THE CARDLAYOUT AREA
+        // =============================
+        cardLayout = new CardLayout();
+        cardPanel = new JPanel(cardLayout);
+        add(cardPanel, BorderLayout.CENTER);
+
+        // --- Placeholder label for "no image loaded"
+        JLabel placeholder = new JLabel("No image loaded.", SwingConstants.CENTER);
+        placeholder.setFont(placeholder.getFont().deriveFont(24f));
+        cardPanel.add(placeholder, "placeholder");
+
+        // --- Create our pic label for the actual image
         pic = new JLabel();
-        // Set pic's icon alignment so that its coordinates will match those of any component added
-        //  to `pic`.
         pic.setHorizontalAlignment(SwingConstants.LEFT);
         pic.setVerticalAlignment(SwingConstants.TOP);
 
-        // Default to using a point-to-point selection model
-        SelectionModel selection = new PointToPointSelectionModel(true);
-        selector = new SelectionComponent(selection);
-        // Add `selector` on top of `pic`.  Adding to the center of a BorderLayout ensures that
-        //  `selector` is scaled to the same size as `pic`.
+        // By default, let's use a simple selection model
+        // (You can replace this with a ProjectiveSelectionModel if you prefer.)
+        SelectionModel defaultModel = new PointToPointSelectionModel(true);
+        selector = new SelectionComponent(defaultModel);
+
+        // We'll place the `SelectionComponent` on top of `pic`
+        // so that they align properly.
         pic.setLayout(new BorderLayout());
-        pic.add(selector);
+        pic.add(selector, BorderLayout.CENTER);
 
-        // Create components to show when no valid image has been set.
-        JLabel placeholder = new JLabel("No image loaded.");
-        placeholder.setHorizontalAlignment(SwingConstants.CENTER);
-        placeholder.setVerticalAlignment(SwingConstants.CENTER);
-        placeholder.setFont(pic.getFont().deriveFont(48.0f));
+        // Add the pic label to the cardPanel
+        cardPanel.add(pic, "image");
 
-        // Use a CardLayout to easily toggle between showing different components when an image is
-        //  set vs. when one isn't.
-        setLayout(new CardLayout());
-        // Placeholder is first, pic is last
-        add(placeholder);
-        add(pic);
+        // Initially, show the placeholder
+        cardLayout.show(cardPanel, "placeholder");
+
+        JButton pickColorButton = new JButton("Pick Color");
+        pickColorButton.addActionListener(e -> {
+            Color chosen = JColorChooser.showDialog(
+                    ImagePanel.this,
+                    "Choose a shape color",
+                    currentShapeColor
+            );
+            if (chosen != null) {
+                currentShapeColor = chosen;
+            }
+        });
+// Add pickColorButton to your toolbar or panel
+        shapeToolBar.add(pickColorButton);
     }
+
+    /**
+     * Attempt to paste a shape using the current SelectionModel,
+     * if it is a ProjectiveSelectionModel and the user has 4 corners selected.
+     *
+     * @param shapeType The shape to paste (e.g. "circle", "square", "oval", "triangle")
+     * @param size      The size of the shape image in pixels (width and height)
+     * @param color     The fill color of the shape
+     */
+    private void pasteShape(String shapeType, int size, Color color) {
+        // 1) Check if our current selection is a ProjectiveSelectionModel
+        if (!(selection() instanceof ProjectiveSelectionModel)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please switch to a 'ProjectiveText' (4-corner) tool before pasting shapes.",
+                    "Wrong tool",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+        ProjectiveSelectionModel projModel = (ProjectiveSelectionModel) selection();
+
+        // 2) Ensure the selection is finished
+        if (projModel.state() != SelectionModel.SelectionState.SELECTED) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please finish selecting exactly 4 corners first.",
+                    "Incomplete Selection",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        // 3) We can now paste the shape in perspective
+        try {
+            projModel.addPerspectiveShape(shapeType, size, color);
+            repaint();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Error warping shape:\n" + ex.getMessage(),
+                    "Shape Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
+        }
+    }
+
 
     /**
      * Return the selection model we are currently controlling.
@@ -65,46 +167,43 @@ public class ImagePanel extends JPanel {
     }
 
     /**
-     * Return the image we are currently displaying and selecting from.  Returns null if no image is
-     * currently set.
+     * Return the image we are currently displaying and selecting from.
+     * Returns null if no image is currently set.
      */
     public BufferedImage image() {
         return selection().image();
     }
 
     /**
-     * Have our selection interactions control `newModel` instead of our current model.  The new
-     * model will be set to use our current image and will initialize its selection path to our
-     * current model's path if possible.
+     * Have our selection interactions control `newModel` instead of our current model.
+     * If we already have an image set, pass it to the new model.
      */
     public void setSelectionModel(SelectionModel newModel) {
-        // Have the new model use our current image
-        if (image() == null || !image().equals(newModel.image())) {
+        // If we currently have an image loaded, set it on the new model
+        if (image() != null && !image().equals(newModel.image())) {
             newModel.setImage(image());
         }
-
+        // Let the SelectionComponent use the new model
         selector.setModel(newModel);
     }
 
     /**
-     * Display and select from `img` instead of our current image.  If `img` is null, then do not
-     * display any image or support any selection interaction (a placeholder message will be shown
-     * instead).  This will set the image on our selection model (which may reset its selection).
+     * Display and select from `img`.
+     * If `img` is null, show the placeholder.
      */
     public void setImage(BufferedImage img) {
-        // Update or remove image in selection model
+        // Update or remove image in the selection model
         selection().setImage(img);
 
-        // We set our own layout manager, so it should still be a CardLayout.
-        CardLayout cards = (CardLayout)getLayout();
         if (img != null) {
-            // Update and show image label
+            // Set the label's icon
             pic.setIcon(new ImageIcon(img));
-            cards.last(this);
+            cardLayout.show(cardPanel, "image");
         } else {
-            // Free image and display placeholder
+            // Revert to placeholder
             pic.setIcon(null);
-            cards.first(this);
+            cardLayout.show(cardPanel, "placeholder");
         }
+        repaint();
     }
 }
